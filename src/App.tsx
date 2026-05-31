@@ -1,11 +1,22 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, CircleAlert, CirclePlus, Edit3, PackageCheck, Save, Trash2, X } from 'lucide-react';
-import { loadItems, saveItems } from './storage';
-import type { Importance, ShoppingListCandidate, StockDraft, StockItem, StockStatus } from './types';
+import {
+  CalendarCheck,
+  CheckCircle2,
+  CircleAlert,
+  CirclePlus,
+  Edit3,
+  History,
+  PackageCheck,
+  Save,
+  Trash2,
+  X,
+} from 'lucide-react';
+import { categoryOptions, loadItems, saveItems } from './storage';
+import type { Importance, ShoppingListCandidate, StockDraft, StockItem, StockStatus, UsageHistory } from './types';
 
 const emptyDraft: StockDraft = {
   name: '',
-  category: '',
+  category: 'その他',
   currentCount: 0,
   minimumCount: 0,
   reserveCount: 0,
@@ -13,6 +24,7 @@ const emptyDraft: StockDraft = {
   importance: 2,
   price: 0,
   purchaseDate: '',
+  startedDate: '',
   store: '',
   note: '',
   consumptionMemo: '',
@@ -41,6 +53,23 @@ const getStatus = (item: StockItem): StockStatus => {
 const createShoppingListCandidates = (items: StockItem[]): ShoppingListCandidate[] =>
   items.filter((item) => getStatus(item) === 'buy');
 
+const getToday = () => new Date().toISOString().slice(0, 10);
+
+const getDurationDays = (startDate: string, endDate: string) => {
+  if (!startDate || !endDate) return 0;
+
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  const diff = end.getTime() - start.getTime();
+
+  if (Number.isNaN(diff) || diff < 0) return 0;
+  return Math.round(diff / 86_400_000);
+};
+
+const formatDate = (value: string) => value || '未記録';
+
+const formatQuantity = (quantity: number, unit: string) => `${quantity}${unit || ''}`;
+
 function App() {
   const [items, setItems] = useState<StockItem[]>(() => loadItems());
   const [draft, setDraft] = useState<StockDraft>(emptyDraft);
@@ -52,11 +81,6 @@ function App() {
   useEffect(() => {
     saveItems(items);
   }, [items]);
-
-  const categories = useMemo(
-    () => ['all', ...Array.from(new Set(items.map((item) => item.category).filter(Boolean))).sort()],
-    [items],
-  );
 
   const filteredItems = useMemo(
     () =>
@@ -77,6 +101,35 @@ function App() {
     [filteredItems],
   );
 
+  const allHistory = useMemo(
+    () =>
+      items
+        .flatMap((item) => item.usageHistory)
+        .sort((a, b) => b.endedDate.localeCompare(a.endedDate)),
+    [items],
+  );
+
+  const averageRows = useMemo(() => {
+    const grouped = new Map<string, UsageHistory[]>();
+    allHistory.forEach((entry) => {
+      const key = `${entry.itemName}-${entry.unit}`;
+      grouped.set(key, [...(grouped.get(key) || []), entry]);
+    });
+
+    return Array.from(grouped.entries())
+      .map(([key, entries]) => {
+        const total = entries.reduce((sum, entry) => sum + entry.durationDays, 0);
+        return {
+          key,
+          name: entries[0].itemName,
+          unit: entries[0].unit,
+          count: entries.length,
+          average: entries.length > 0 ? Math.round(total / entries.length) : 0,
+        };
+      })
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ja'));
+  }, [allHistory]);
+
   const buyCountAll = items.filter((item) => getStatus(item) === 'buy').length;
   const topPriorityBuyCount = items.filter((item) => getStatus(item) === 'buy' && item.importance === 3).length;
   const shoppingListCandidates = createShoppingListCandidates(items);
@@ -96,7 +149,6 @@ function App() {
     const cleanDraft: StockDraft = {
       ...draft,
       name: draft.name.trim(),
-      category: draft.category.trim() || '未分類',
       unit: draft.unit.trim(),
       store: draft.store.trim(),
       note: draft.note.trim(),
@@ -108,14 +160,24 @@ function App() {
     if (editingId) {
       setItems((current) => current.map((item) => (item.id === editingId ? { ...item, ...cleanDraft } : item)));
     } else {
-      setItems((current) => [{ id: crypto.randomUUID(), ...cleanDraft, future: {} }, ...current]);
+      setItems((current) => [
+        {
+          id: crypto.randomUUID(),
+          ...cleanDraft,
+          endedDate: '',
+          durationDays: 0,
+          usageHistory: [],
+          future: {},
+        },
+        ...current,
+      ]);
     }
 
     resetForm();
   };
 
   const startEdit = (item: StockItem) => {
-    const { id: _id, future: _future, ...nextDraft } = item;
+    const { id: _id, future: _future, endedDate: _endedDate, durationDays: _durationDays, usageHistory: _history, ...nextDraft } = item;
     setDraft(nextDraft);
     setEditingId(item.id);
     setIsFormOpen(true);
@@ -127,11 +189,49 @@ function App() {
     if (editingId === id) resetForm();
   };
 
+  const finishItem = (item: StockItem) => {
+    const endedDate = getToday();
+    const startedDate = item.startedDate || item.purchaseDate || endedDate;
+    const durationDays = getDurationDays(startedDate, endedDate);
+    const historyEntry: UsageHistory = {
+      id: crypto.randomUUID(),
+      itemName: item.name,
+      category: item.category,
+      quantity: item.currentCount,
+      unit: item.unit,
+      purchaseDate: item.purchaseDate,
+      startedDate,
+      endedDate,
+      durationDays,
+      memo: item.consumptionMemo || item.note,
+    };
+
+    setItems((current) =>
+      current.map((currentItem) =>
+        currentItem.id === item.id
+          ? {
+              ...currentItem,
+              currentCount: 0,
+              startedDate,
+              endedDate,
+              durationDays,
+              usageHistory: [historyEntry, ...currentItem.usageHistory],
+              future: {
+                ...currentItem.future,
+                usedUpDate: endedDate,
+                consumptionPeriodDays: durationDays,
+              },
+            }
+          : currentItem,
+      ),
+    );
+  };
+
   return (
     <main className="app-shell">
       <header className="app-header">
         <div>
-          <p className="eyebrow">まとめ買いの持ち具合を見える化</p>
+          <p className="eyebrow">購入タイミングを予測できるストック管理へ</p>
           <h1>ストック管理Labo</h1>
         </div>
         <button className="primary-action" type="button" onClick={() => setIsFormOpen(true)}>
@@ -174,7 +274,13 @@ function App() {
             </label>
             <label>
               カテゴリ
-              <input value={draft.category} onChange={(event) => updateDraft('category', event.target.value)} />
+              <select value={draft.category} onChange={(event) => updateDraft('category', event.target.value as StockDraft['category'])}>
+                {categoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               現在数
@@ -247,6 +353,14 @@ function App() {
               />
             </label>
             <label>
+              使用開始日
+              <input
+                type="date"
+                value={draft.startedDate}
+                onChange={(event) => updateDraft('startedDate', event.target.value)}
+              />
+            </label>
+            <label>
               購入店
               <input value={draft.store} onChange={(event) => updateDraft('store', event.target.value)} />
             </label>
@@ -291,9 +405,10 @@ function App() {
         <label className="category-filter">
           カテゴリ
           <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-            {categories.map((category) => (
+            <option value="all">すべて</option>
+            {categoryOptions.map((category) => (
               <option key={category} value={category}>
-                {category === 'all' ? 'すべて' : category}
+                {category}
               </option>
             ))}
           </select>
@@ -308,6 +423,7 @@ function App() {
           items={groupedItems.buy}
           onEdit={startEdit}
           onDelete={removeItem}
+          onFinish={finishItem}
         />
         <StatusSection
           title="🟡 そろそろ確認"
@@ -316,14 +432,20 @@ function App() {
           items={groupedItems.check}
           onEdit={startEdit}
           onDelete={removeItem}
+          onFinish={finishItem}
         />
-        <section className="safe-section">
-          <div className="section-heading">
-            <h2>🟢 安心</h2>
-            <span>{groupedItems.safe.length}件</span>
-          </div>
-        </section>
+        <StatusSection
+          title="🟢 安心"
+          tone="calm"
+          icon={<CheckCircle2 size={18} />}
+          items={groupedItems.safe}
+          onEdit={startEdit}
+          onDelete={removeItem}
+          onFinish={finishItem}
+        />
       </section>
+
+      <HistorySection history={allHistory} averages={averageRows} />
 
       <footer className="app-footer">
         <CheckCircle2 size={16} aria-hidden="true" />
@@ -335,14 +457,15 @@ function App() {
 
 type StatusSectionProps = {
   title: string;
-  tone: 'danger' | 'warning';
+  tone: 'danger' | 'warning' | 'calm';
   icon: ReactNode;
   items: StockItem[];
   onEdit: (item: StockItem) => void;
   onDelete: (id: string) => void;
+  onFinish: (item: StockItem) => void;
 };
 
-function StatusSection({ title, tone, icon, items, onEdit, onDelete }: StatusSectionProps) {
+function StatusSection({ title, tone, icon, items, onEdit, onDelete, onFinish }: StatusSectionProps) {
   return (
     <section className={`stock-section ${tone}`}>
       <div className="section-heading">
@@ -366,11 +489,24 @@ function StatusSection({ title, tone, icon, items, onEdit, onDelete }: StatusSec
                   </p>
                 </div>
                 <div className="quantity-pill">
-                  {item.currentCount}
-                  {item.unit || ''}
-                  <span>/ 最低 {item.minimumCount}</span>
+                  {formatQuantity(item.currentCount, item.unit)}
+                  <span>/ 最低 {formatQuantity(item.minimumCount, item.unit)}</span>
                 </div>
               </div>
+              <dl className="date-grid">
+                <div>
+                  <dt>購入日</dt>
+                  <dd>{formatDate(item.purchaseDate)}</dd>
+                </div>
+                <div>
+                  <dt>使用開始日</dt>
+                  <dd>{formatDate(item.startedDate)}</dd>
+                </div>
+                <div>
+                  <dt>前回終了</dt>
+                  <dd>{item.endedDate ? `${item.endedDate} / ${item.durationDays}日` : '未記録'}</dd>
+                </div>
+              </dl>
               {(item.note || item.consumptionMemo) && (
                 <div className="memo-block">
                   {item.note && <p>{item.note}</p>}
@@ -378,6 +514,10 @@ function StatusSection({ title, tone, icon, items, onEdit, onDelete }: StatusSec
                 </div>
               )}
               <div className="card-actions">
+                <button type="button" onClick={() => onFinish(item)}>
+                  <CalendarCheck size={16} aria-hidden="true" />
+                  <span>終了</span>
+                </button>
                 <button type="button" onClick={() => onEdit(item)}>
                   <Edit3 size={16} aria-hidden="true" />
                   <span>編集</span>
@@ -387,6 +527,64 @@ function StatusSection({ title, tone, icon, items, onEdit, onDelete }: StatusSec
                   <span>削除</span>
                 </button>
               </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+type HistorySectionProps = {
+  history: UsageHistory[];
+  averages: Array<{
+    key: string;
+    name: string;
+    unit: string;
+    count: number;
+    average: number;
+  }>;
+};
+
+function HistorySection({ history, averages }: HistorySectionProps) {
+  return (
+    <section className="history-section" aria-label="使用履歴">
+      <div className="section-heading">
+        <h2>
+          <History size={18} aria-hidden="true" />
+          使用履歴
+        </h2>
+        <span>{history.length}件</span>
+      </div>
+
+      {averages.length > 0 && (
+        <div className="average-list" aria-label="平均使用日数">
+          {averages.map((row) => (
+            <div className="average-card" key={row.key}>
+              <strong>{row.name}</strong>
+              <span>
+                平均 {row.average}日 / {row.count}回
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {history.length === 0 ? (
+        <p className="empty-state">終了ボタンを押すと、ここに使用日数の履歴が残ります。</p>
+      ) : (
+        <div className="history-list">
+          {history.map((entry) => (
+            <article className="history-row" key={entry.id}>
+              <div>
+                <h3>
+                  {entry.itemName} {formatQuantity(entry.quantity, entry.unit)}
+                </h3>
+                <p>
+                  {entry.startedDate} → {entry.endedDate}
+                </p>
+              </div>
+              <strong>{entry.durationDays}日</strong>
             </article>
           ))}
         </div>

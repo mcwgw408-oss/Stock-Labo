@@ -1,8 +1,8 @@
-import type { Importance, StockItem } from './types';
+import type { Importance, StockCategory, StockItem } from './types';
 
 type InitialStockSeed = {
   name: string;
-  category: string;
+  category: StockCategory;
   importance: Importance;
   note: string;
 };
@@ -10,13 +10,13 @@ type InitialStockSeed = {
 const seeds: InitialStockSeed[] = [
   {
     name: 'お米',
-    category: '食品',
+    category: '主食',
     importance: 3,
     note: '10kg購入。何日持つか検証中。',
   },
   {
     name: 'フルグラ',
-    category: '食品',
+    category: '主食',
     importance: 2,
     note: '8個購入。月何個使うか確認中。',
   },
@@ -45,28 +45,28 @@ const seeds: InitialStockSeed[] = [
     note: '詰め替えまとめ買いの消費ペースを記録する。',
   },
   {
-    name: '猫砂',
-    category: 'ペット',
+    name: '常備薬',
+    category: '医療',
     importance: 3,
-    note: '箱買いしたときの月使用量を確認する。',
+    note: '使用期限と補充タイミングを確認する。',
   },
   {
     name: '冷凍うどん',
-    category: '冷凍食品',
+    category: '冷凍',
     importance: 1,
     note: 'あると便利。減り方を見ておく。',
   },
   {
-    name: '歯ブラシ',
-    category: '衛生用品',
+    name: 'ヨーグルト',
+    category: '冷蔵',
     importance: 2,
-    note: '家族分の交換ペースを記録する。',
+    note: '何日ペースでなくなるか確認したい。',
   },
   {
-    name: 'キッチンペーパー',
-    category: '日用品',
-    importance: 1,
-    note: 'まとめ買いの置き場所と消費量を確認する。',
+    name: '水',
+    category: '飲料',
+    importance: 3,
+    note: '箱買いしたときの消費ペースを記録する。',
   },
 ];
 
@@ -82,8 +82,12 @@ export const createInitialItems = (): StockItem[] =>
     importance: seed.importance,
     price: 0,
     purchaseDate: '',
+    startedDate: '',
+    endedDate: '',
+    durationDays: 0,
     store: '',
     note: seed.note,
     consumptionMemo: '',
+    usageHistory: [],
     future: {},
   }));

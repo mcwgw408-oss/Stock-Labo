@@ -537,3 +537,40 @@ textarea:focus {
     flex-direction: column;
   }
 }
+
+/* ===== 共通ナビゲーション ===== */
+.global-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 8px 10px;
+  border: 1px solid #ddd6c9;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.global-nav-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid #ddd6c9;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #3a362e;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.global-nav-link:hover {
+  border-color: #6b7f52;
+}
+
+.global-nav-link.current {
+  border-color: #6b7f52;
+  background: #eef2e4;
+  color: #4c5f37;
+}

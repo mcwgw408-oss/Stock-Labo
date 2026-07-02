@@ -65,7 +65,7 @@ const normalizeHistory = (history: unknown): UsageHistory[] => {
   }));
 };
 
-const normalizeItem = (item: Partial<StockItem>): StockItem => ({
+export const normalizeItem = (item: Partial<StockItem>): StockItem => ({
   id: item.id || crypto.randomUUID(),
   name: item.name || '',
   category: normalizeCategory(item.category),
@@ -84,4 +84,5 @@ const normalizeItem = (item: Partial<StockItem>): StockItem => ({
   consumptionMemo: item.consumptionMemo || '',
   usageHistory: normalizeHistory(item.usageHistory),
   future: item.future || {},
+  ...(typeof item.updatedAt === 'string' && item.updatedAt ? { updatedAt: item.updatedAt } : {}),
 });

@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useMemo, useState, useRef } from 'react';
 import {
   CalendarCheck,
   CheckCircle2,
@@ -11,7 +11,8 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { categoryOptions, loadItems, saveItems } from './storage';
+import { categoryOptions, loadItems, normalizeItem, saveItems } from './storage';
+import { backupFilename, createBackup, downloadJson, validateBackup } from './backup';
 import type { Importance, ShoppingListCandidate, StockDraft, StockItem, StockStatus, UsageHistory } from './types';
 
 const emptyDraft: StockDraft = {
@@ -186,7 +187,11 @@ function App() {
     if (!cleanDraft.name) return;
 
     if (editingId) {
-      setItems((current) => current.map((item) => (item.id === editingId ? { ...item, ...cleanDraft } : item)));
+      setItems((current) =>
+        current.map((item) =>
+          item.id === editingId ? { ...item, ...cleanDraft, updatedAt: new Date().toISOString() } : item,
+        ),
+      );
     } else {
       setItems((current) => [
         {
@@ -196,6 +201,7 @@ function App() {
           durationDays: 0,
           usageHistory: [],
           future: {},
+          updatedAt: new Date().toISOString(),
         },
         ...current,
       ]);
@@ -249,10 +255,59 @@ function App() {
                 usedUpDate: endedDate,
                 consumptionPeriodDays: durationDays,
               },
+              updatedAt: new Date().toISOString(),
             }
           : currentItem,
       ),
     );
+  };
+
+
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = () => {
+    downloadJson(createBackup({ items }), backupFilename());
+  };
+
+  const handleImportFile = async (file: File) => {
+    let parsed: unknown;
+
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      alert('JSONファイルとして読み取れませんでした。');
+      return;
+    }
+
+    const result = validateBackup(parsed);
+
+    if (!result.ok) {
+      alert(result.error);
+      return;
+    }
+
+    const incoming = result.backup.data.items;
+
+    if (!Array.isArray(incoming)) {
+      alert('ファイルにデータが入っていません。');
+      return;
+    }
+
+    // 取り込み前に、今のデータを自動でバックアップ
+    downloadJson(createBackup({ items }), backupFilename(true));
+
+    const nextItems = incoming.map((item) => normalizeItem(item as Partial<StockItem>));
+
+    const accepted = confirm(
+      `今のデータ（${items.length}件）を、ファイルの内容（${nextItems.length}件）で置き換えます。\n` +
+        '直前のデータは自動バックアップとしてダウンロードされています。\nよろしいですか？',
+    );
+
+    if (!accepted) return;
+
+    setItems(nextItems);
+    resetForm();
+    alert(`取り込みが完了しました（${nextItems.length}件）。`);
   };
 
   return (
@@ -263,10 +318,31 @@ function App() {
           <p className="eyebrow">購入タイミングを予測できるストック管理へ</p>
           <h1>ストック管理Labo</h1>
         </div>
-        <button className="primary-action" type="button" onClick={() => setIsFormOpen(true)}>
-          <CirclePlus size={20} aria-hidden="true" />
-          <span>追加</span>
-        </button>
+        <div className="header-actions">
+          <div className="backup-actions" aria-label="バックアップ">
+            <button className="backup-button" type="button" onClick={handleExport}>
+              書き出し
+            </button>
+            <button className="backup-button" type="button" onClick={() => importInputRef.current?.click()}>
+              取り込み
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (file) void handleImportFile(file);
+              }}
+            />
+          </div>
+          <button className="primary-action" type="button" onClick={() => setIsFormOpen(true)}>
+            <CirclePlus size={20} aria-hidden="true" />
+            <span>追加</span>
+          </button>
+        </div>
       </header>
 
       <section className="summary-grid" aria-label="在庫サマリー">

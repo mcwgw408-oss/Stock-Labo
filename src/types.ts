@@ -34,6 +34,7 @@ export type StockItem = {
   store: string;
   note: string;
   consumptionMemo: string;
+  updatedAt?: string;
   usageHistory: UsageHistory[];
   future?: {
     usedUpDate?: string;
